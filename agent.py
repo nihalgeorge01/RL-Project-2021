@@ -29,6 +29,7 @@ class Agent:
             self.q_table = np.zeros((self.config[0],self.config[1]))
         
         if self.env_name == 'acrobot':
+            np.random.seed(10)
             self.weights = np.clip(np.random.normal(0,np.sqrt(2/self.config[0]),size=(self.config[0],self.config[1])), -1, 1) #He initialisation
 
         self.beta = self.config[2]
@@ -75,7 +76,7 @@ class Agent:
         """
         if self.env_name == 'acrobot':
             obs = np.array(obs).reshape(1,-1)
-            q_val_prev = np.matmul(self.obs_prev, self.weights)[0][self.action]
+            q_val_prev = np.matmul(self.obs_prev, self.weights[:,self.action].reshape(-1,1))[0]
 
             error = self.obs_prev*(reward + (1-done)*self.alpha*np.max(np.matmul(obs, self.weights)) - q_val_prev)
             self.weights[:, self.action] += self.beta*error[0]
