@@ -29,7 +29,7 @@ class Agent:
             self.q_table = np.zeros((self.config[0],self.config[1]))
         
         if self.env_name == 'acrobot':
-            self.weights = np.clip(np.random.normal(0,np.sqrt(2/self.config[0]),size=(self.config[0],self.config[1])), -1, 1)
+            self.weights = np.clip(np.random.normal(0,np.sqrt(2/self.config[0]),size=(self.config[0],self.config[1])), -1, 1) #He initialisation
 
         self.beta = self.config[2]
         self.alpha = self.config[3]
