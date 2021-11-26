@@ -62,7 +62,7 @@ class Agent:
         #raise NotImplementedError
         #return action
 
-    def acro_reward(self, obs):
+    def acro_reward(self, obs, done):
         m = 1.0
         g = 9.8
         L = 1.0
@@ -72,10 +72,10 @@ class Agent:
         pi = 3.14159265
 
         # Hyperparams: relative importance of each variable
-        pe_scale = 5
-        ke_scale = 5
+        pe_scale = 1
+        ke_scale = 1
         ke1_scale = 1
-        ke2_scale = 0.2
+        ke2_scale = 1
         te_scale = 5
 
         # c = cos(), s = sin()
@@ -107,6 +107,8 @@ class Agent:
         te_max = pe0 + ke_max
         te = te_scale *(ke_scale*ke + pe_scale*pe - te_max)/te_max
 
+        if done:
+            return 1
         return te
 
     def compute_action_train(self, obs, reward, done, info):
@@ -125,7 +127,7 @@ class Agent:
         if self.env_name == 'acrobot':
             obs = np.array(obs).reshape(1,-1)
             q_val_prev = np.matmul(self.obs_prev, self.weights[:,self.action].reshape(-1,1))[0]
-            a_reward = self.acro_reward(obs)
+            a_reward = self.acro_reward(obs, done)
             error = self.obs_prev*(a_reward + (1-done)*self.alpha*np.max(np.matmul(obs, self.weights)) - q_val_prev)
             self.weights[:, self.action] += self.beta*error[0]
 
