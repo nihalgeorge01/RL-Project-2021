@@ -37,6 +37,20 @@ class Agent:
         self.beta_inv = int(1/self.beta)
         self.eps = 1
         self.eps_decay = 0.99
+
+        # KBC targets
+        self.kbc_r0 = -1
+        self.kbc_b = -1
+        self.kbc_pe = -1
+        self.kbc_ph = -1
+        self.kbc_ge = -1
+        self.kbc_gh = -1
+
+        self.kbc_pe_ct = []
+        self.kbc_ph_ct = []
+
+        self.kbc_n = self.config[0]
+
         pass
 
     def register_reset_train(self, obs):
@@ -134,7 +148,59 @@ class Agent:
             q_vals = np.matmul(obs, self.weights)
             #print(self.weights)
 
-        if self.env_name == 'taxi':
+        elif self.env_name == 'kbca':
+            # hidden: reward - r0, b; probab - pe, ge
+
+            # Finding r0 - Get 1 question correct, then leave to get r0
+
+            # Finding b - Get 2 questions correct, then leave to get r0*b, divide by r0 to get b
+
+            # Finding pe, ge - Simulate as many paths as possible, find empirical probabs
+
+            if done:
+                pass
+                # Use estimation theory to get best pe estimate
+
+                # Fit a geometric curve to get best ge estimate
+            
+            pass
+        
+        elif self.env_name == 'kbcb':
+            # hidden: reward - r0, b; probab - pe, ge; checkpoint - kc
+
+            # Finding r0 - Get 1 question correct, then leave to get r0
+
+            # Finding b - Get 2 questions correct, then leave to get r0*b, divide by r0 to get b
+
+            # Finding pe, ge, kc - Simulate as many paths as possible, never pulling out, find empirical probabs.
+            # If non-zero reward on losing, it is r0*b^(kc-1), use values of r0 and b to get kc 
+
+            if done:
+                pass
+                # Use estimation theory to get best pe estimate
+
+                # Fit a geometric curve to get best ge estimate
+
+            pass
+        
+        elif self.env_name == 'kbcc':
+            # hidden: reward - r0, b; probab - pe, ph, ge, gh
+
+            # Finding r0 - Get 1 question correct, then leave to get r0
+
+            # Finding b - Get 2 questions correct, then leave to get r0*b, divide by r0 to get b
+
+            # Finding pe, ph, ge, gh - Simulate as many paths as possible, find empirical probabs
+            
+            if done:
+                pass
+                # Use estimation theory to get best pe, ph estimate
+
+                # Fit a geometric curve to get best ge, gh estimate
+
+            pass
+        
+        elif self.env_name == 'taxi':
             self.q_table[self.obs_prev][self.action] += self.beta*(reward + (1-done)*self.alpha*np.max(self.q_table[obs]) - \
                                                                                 self.q_table[self.obs_prev][self.action])
             q_vals = self.q_table[obs]
