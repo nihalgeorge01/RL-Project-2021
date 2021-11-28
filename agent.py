@@ -45,10 +45,12 @@ class Agent:
         self.kbc_ph = -1
         self.kbc_ge = -1
         self.kbc_gh = -1
-
+        self.kbc_kc = 0
+        self.kbc_step = 0
         self.kbc_pe_ct = []
         self.kbc_ph_ct = []
 
+        self.kbc_easy = True
         self.kbc_n = self.config[0]
 
         pass
@@ -66,7 +68,22 @@ class Agent:
             obs = np.array(obs).reshape(1,-1)
             q_vals = np.matmul(obs, self.weights)
             self.action = np.argmax(q_vals)
-            pass
+            
+        elif self.env_name == 'kbca':
+            self.action = 1
+            self.kbc_step = 0
+            
+        elif self.env_name == 'kbcb':
+            self.action = 1
+            self.kbc_step = 0
+            
+        elif self.env_name == 'kbcc':
+            if self.kbc_easy:
+                self.action = 1
+            else:
+                self.action = 2
+            self.kbc_step = 0
+
         if self.env_name == 'taxi':
             self.action = np.argmax(self.q_table[obs])
 
@@ -147,68 +164,132 @@ class Agent:
 
             q_vals = np.matmul(obs, self.weights)
             #print(self.weights)
-
+            if np.random.uniform() > self.eps:
+                self.action = np.argmax(q_vals)
+            else:
+                self.action = np.random.choice(self.config[1])
+        
         elif self.env_name == 'kbca':
             # hidden: reward - r0, b; probab - pe, ge
-
+            
+            self.kbc_step += 1
             # Finding r0 - Get 1 question correct, then leave to get r0
-
+            if self.kbc_r0 == -1:  # Not yet found r0 
+                if not done:        # Episode not ended => We got Q0 correct => We can pull out to get r0
+                    self.action = 0
+                elif self.kbc_step == 1:    # Done and only 1 step => We got Q0 wrong, have to start again
+                    self.action = 1
+                else:   # Done in 2 steps => We got Q0 correct, pulled out, got r0. Now store this value
+                    self.action = 1
+                    self.kbc_r0 = reward
+            
             # Finding b - Get 2 questions correct, then leave to get r0*b, divide by r0 to get b
+            elif self.kbc_b == -1:
+                if not done:
+                    if self.kbc_step == 1:  # Got Q0 correct, now have to attempt Q1
+                        self.action = 1
+                    else:       # Not done and more than 1 step (=> 2 steps) => Got Q0 and Q1 correct, now pull out to get r0*b
+                        self.action = 0
+                else:
+                    if self.kbc_step in [1,2]:  # Done in 1 or 2 steps => Got Q0 wrong or got Q1 wrong, start again
+                        self.action = 1
+                    else:   # Done in 3 steps => Got Q0 and Q1 correct, then pulled out => got reward, now compute b and store it
+                        self.kbc_b = float(reward)/self.kbc_r0
 
             # Finding pe, ge - Simulate as many paths as possible, find empirical probabs
-
-            if done:
-                pass
-                # Use estimation theory to get best pe estimate
-
-                # Fit a geometric curve to get best ge estimate
-            
-            pass
+            else:       # Just store counts of how many times a state was reached
+                if not done:    # Keep attempting questions
+                    self.action = 1
+                else:   # We lost at Q_step-1
+                    self.kbc_pe_ct[self.kbc_step-1] += 1
+                    self.action = 1
         
         elif self.env_name == 'kbcb':
             # hidden: reward - r0, b; probab - pe, ge; checkpoint - kc
 
+            self.kbc_step += 1
             # Finding r0 - Get 1 question correct, then leave to get r0
-
+            if self.kbc_r0 == -1:  # Not yet found r0 
+                if not done:        # Episode not ended => We got Q0 correct => We can pull out to get r0
+                    self.action = 0
+                elif self.kbc_step == 1:    # Done and only 1 step => We got Q0 wrong, have to start again
+                    self.action = 1
+                else:   # Done in 2 steps => We got Q0 correct, pulled out, got r0. Now store this value
+                    self.action = 1
+                    self.kbc_r0 = reward
+            
             # Finding b - Get 2 questions correct, then leave to get r0*b, divide by r0 to get b
+            elif self.kbc_b == -1:
+                if not done:
+                    if self.kbc_step == 1:  # Got Q0 correct, now have to attempt Q1
+                        self.action = 1
+                    else:       # Not done and more than 1 step (=> 2 steps) => Got Q0 and Q1 correct, now pull out to get r0*b
+                        self.action = 0
+                else:
+                    if self.kbc_step in [1,2]:  # Done in 1 or 2 steps => Got Q0 wrong or got Q1 wrong, start again
+                        self.action = 1
+                    else:   # Done in 3 steps => Got Q0 and Q1 correct, then pulled out => got reward, now compute b and store it
+                        self.kbc_b = float(reward)/self.kbc_r0
 
             # Finding pe, ge, kc - Simulate as many paths as possible, never pulling out, find empirical probabs.
-            # If non-zero reward on losing, it is r0*b^(kc-1), use values of r0 and b to get kc 
-
-            if done:
-                pass
-                # Use estimation theory to get best pe estimate
-
-                # Fit a geometric curve to get best ge estimate
-
-            pass
+            else:       # Just store counts of how many times a state was reached
+                if not done:    # Keep attempting questions
+                    self.action = 1
+                else:   # We lost at Q_step-1
+                    self.kbc_pe_ct[self.kbc_step-1] += 1
+                    self.action = 1
+                    if reward != 0:     # We passed a checkpoint somewhere, note reward = r0*b^(kc-1), Use maths to get kc
+                        self.kbc_kc = np.log(float(reward)/self.kbc_r0)/np.log(self.kbc_b) + 1
         
         elif self.env_name == 'kbcc':
             # hidden: reward - r0, b; probab - pe, ph, ge, gh
 
+            self.kbc_step += 1
             # Finding r0 - Get 1 question correct, then leave to get r0
-
-            # Finding b - Get 2 questions correct, then leave to get r0*b, divide by r0 to get b
-
-            # Finding pe, ph, ge, gh - Simulate as many paths as possible, find empirical probabs
+            if self.kbc_r0 == -1:  # Not yet found r0 
+                if not done:        # Episode not ended => We got Q0 correct => We can pull out to get r0
+                    self.action = 0
+                elif self.kbc_step == 1:    # Done and only 1 step => We got Q0 wrong, have to start again
+                    self.action = 1
+                else:   # Done in 2 steps => We got Q0 correct, pulled out, got r0. Now store this value
+                    self.action = 1
+                    self.kbc_r0 = reward
             
-            if done:
-                pass
-                # Use estimation theory to get best pe, ph estimate
+            # Finding b - Get 2 questions correct, then leave to get r0*b, divide by r0 to get b
+            elif self.kbc_b == -1:
+                if not done:
+                    if self.kbc_step == 1:  # Got Q0 correct, now have to attempt Q1
+                        self.action = 1
+                    else:       # Not done and more than 1 step (=> 2 steps) => Got Q0 and Q1 correct, now pull out to get r0*b
+                        self.action = 0
+                else:
+                    if self.kbc_step in [1,2]:  # Done in 1 or 2 steps => Got Q0 wrong or got Q1 wrong, start again
+                        self.action = 1
+                    else:   # Done in 3 steps => Got Q0 and Q1 correct, then pulled out => got reward, now compute b and store it
+                        self.kbc_b = float(reward)/self.kbc_r0
 
-                # Fit a geometric curve to get best ge, gh estimate
-
-            pass
+            # Finding pe, ph, ge, gh - Simulate as many paths as possible, find empirical probabs. Alternate between episodes of all easy and all hard questions
+            else:       # Just store counts of how many times a state was reached
+                if done:   # We lost at Q_step-1
+                    if self.kbc_easy:
+                        self.kbc_pe_ct[self.kbc_step-1] += 1
+                        self.kbc_easy = False
+                        self.action = 2
+                    else:
+                        self.kbc_ph_ct[self.kbc_step-1] += 1
+                        self.kbc_easy = True
+                        self.action = 1
+                # if not done, don't change self.action, just do the same
         
         elif self.env_name == 'taxi':
             self.q_table[self.obs_prev][self.action] += self.beta*(reward + (1-done)*self.alpha*np.max(self.q_table[obs]) - \
                                                                                 self.q_table[self.obs_prev][self.action])
             q_vals = self.q_table[obs]
         
-        if np.random.uniform() > self.eps:
-            self.action = np.argmax(q_vals)
-        else:
-            self.action = np.random.choice(self.config[1])
+            if np.random.uniform() > self.eps:
+                self.action = np.argmax(q_vals)
+            else:
+                self.action = np.random.choice(self.config[1])
 
         self.eps = max(0.1, self.eps*self.eps_decay)
         self.obs_prev = obs
@@ -234,8 +315,41 @@ class Agent:
             obs = np.array(obs).reshape(1,-1)
             q_vals = np.matmul(obs, self.weights)
             action = np.argmax(q_vals)
+        
+        elif self.env_name == 'kbca':
+            # If first test episode, set variables and DP tables
+                # If any params are unset (at -1), put some default value
 
-        if self.env_name == 'taxi':
+                # Build rewards and probab arrays
+
+                # Build DP table, get optimal policy
+
+            # Take optimal action given obs and DP table
+            pass
+        
+        elif self.env_name == 'kbcb':
+            # If first test episode, set variables and DP tables
+                # If any params are unset (at -1), put some default value
+
+                # Build rewards and probab arrays
+
+                # Build DP table, get optimal policy
+
+            # Take optimal action given obs and DP table
+            pass
+        
+        elif self.env_name == 'kbcc':
+            # If first test episode, set variables and DP tables
+                # If any params are unset (at -1), put some default value
+
+                # Build rewards and probab arrays
+
+                # Build DP table, get optimal policy
+
+            # Take optimal action given obs and DP table
+            pass
+        
+        elif self.env_name == 'taxi':
             action = np.argmax(self.q_table[obs])
         #raise NotImplementedError
         return action
