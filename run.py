@@ -34,12 +34,12 @@ def evaluate(agent, env):
 
 
 if __name__ == "__main__":
-    ENV_NAME = os.getenv("ENV_NAME", "kbcc")
+    ENV_NAME = os.getenv("ENV_NAME", "taxi")
 
     N_TRAIN_EPISODES = {"acrobot": 2000, "taxi": 1500, "kbca": 2000, "kbcb": 2000, "kbcc": 2000}
 
-    # TODO : Change this back to 100
-    N_EVAL_EPISODES = 1000
+    
+    N_EVAL_EPISODES = 100
 
     if ENV_NAME == "acrobot":
         env = aicrowd_gym.make("Acrobot-v1")

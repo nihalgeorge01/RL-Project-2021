@@ -273,34 +273,52 @@ class Agent:
                 # Build rewards and probab arrays
                 self.kbc_rewards = [0] + [self.kbc_r0 * (self.kbc_b ** i) for i in range(self.kbc_n)]
                 self.kbc_rewards[-1] = self.kbc_r0 * (self.kbc_b ** (self.kbc_n-2)) # Env has a mistake, setter's side issue
-                # TODO : Least squares based estimate of px, gx
-                # self.kbc_pe_log_emp = []
-                # for val in self.kbc_pe_ct:
-                #     if val>0:
-                #         self.kbc_pe_log_emp.append(np.log(val/self.kbc_pe_ep))
-                #     else:
-                #         break
                 
-                # # Least square fit to get ln(ge) and ln(pe) + 0.5ln(ge)
+                # TODO : Least squares based estimate of px, gx
+                self.kbc_pe_log_emp = []
+                lstsq_tol = 10
+                for i in range(lstsq_tol):
+                    val = self.kbc_pe_ct[i]
+                    if val>0:
+                        self.kbc_pe_log_emp.append(np.log(val/self.kbc_pe_ep))
+                    else:
+                        break
+                
+                el_ct = len(self.kbc_pe_log_emp)
+                # Least square fit of pe_log_emp = Ax, where x has ln(ge) and ln(pe) - 0.5ln(ge)
+                A = np.array([[val**2, val] for val in range(1,el_ct+1)])
+                coeffs = np.linalg.lstsq(A,np.array(self.kbc_pe_log_emp), rcond=None)[0]
+                self.kbc_ge = np.exp(2*coeffs[0])
+                self.kbc_pe = np.exp(coeffs[1] + coeffs[0])
 
-                # # Finding hard q params for KBC C
-                # if self.env_name[3] == 'c':
-                #     self.kbc_ph_log_emp = []
-                #     for val in self.kbc_ph_ct:
-                #         if val>0:
-                #             self.kbc_ph_log_emp.append(np.log(val/self.kbc_ph_ep))
-                #         else:
-                #             break
-                #     # Least square fit to get ln(gh) and ln(ph) + 0.5ln(gh)
-                # END TODO
+                # Finding hard q params for KBC C
+                if self.env_name[3] == 'c':
+                    self.kbc_ph_log_emp = []
+                    for i in range(lstsq_tol):
+                        val = self.kbc_ph_ct[i]
+                        if val>0:
+                            self.kbc_ph_log_emp.append(np.log(val/self.kbc_ph_ep))
+                        else:
+                            break
 
-                self.kbc_pe = self.kbc_pe_ct[0]/self.kbc_pe_ep
-                self.kbc_ge = (self.kbc_pe_ct[1]/self.kbc_pe_ep)/(self.kbc_pe ** 2)
+                    el_ct = len(self.kbc_ph_log_emp)
+                    # Least square fit to get ln(gh) and ln(ph) + 0.5ln(gh)
+                    A = np.array([[val**2, val] for val in range(1,el_ct+1)])
+                    coeffs = np.linalg.lstsq(A,np.array(self.kbc_ph_log_emp), rcond=None)[0]
+                    self.kbc_gh = np.exp(2*coeffs[0])
+                    self.kbc_ph = np.exp(coeffs[1] + coeffs[0])
+
+                # OLD: Empirical probabs of 1st two qs to get pe and ge
+                # self.kbc_pe = self.kbc_pe_ct[0]/self.kbc_pe_ep
+                # self.kbc_ge = (self.kbc_pe_ct[1]/self.kbc_pe_ep)/(self.kbc_pe ** 2)
+                # self.kbc_pe = 0.99
+                # self.kbc_ge = 0.95
                 self.kbc_pe_ns_probs = [self.kbc_pe * (self.kbc_ge ** i) for i in range(self.kbc_n)]
 
                 if self.env_name[3] == 'c':
-                    self.kbc_ph = self.kbc_ph_ct[0]/self.kbc_ph_ep
-                    self.kbc_gh = (self.kbc_ph_ct[1]/self.kbc_ph_ep)/(self.kbc_ph ** 2)
+                    # OLD: Empirical probabs of 1st two qs to get ph and gh
+                    # self.kbc_ph = self.kbc_ph_ct[0]/self.kbc_ph_ep
+                    # self.kbc_gh = (self.kbc_ph_ct[1]/self.kbc_ph_ep)/(self.kbc_ph ** 2)
                     self.kbc_ph_ns_probs = [self.kbc_ph * (self.kbc_gh ** i) for i in range(self.kbc_n)]
                 
                 # Build DP table, get optimal policy
@@ -321,6 +339,14 @@ class Agent:
                     self.kbc_dp[i] = max(choices)
                     self.kbc_pol[i] = argmax(choices)
 
+                # print("Optimal policy:", self.kbc_pol)
+                # print("Optimal value:", self.kbc_dp)
+                # print("Train eps used for pe:", self.kbc_pe_ep)
+                # print("Train eps used for ph:", self.kbc_ph_ep)
+                # print("pe counts:", self.kbc_pe_ct)
+                # print("ph counts:", self.kbc_ph_ct)
+                # self.kbc_pol = [1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0]
+                
             # Take optimal action given obs and DP table
             self.kbc_step = 0
             action = self.kbc_pol[0]
