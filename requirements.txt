@@ -1,4 +1,6 @@
 aicrowd-gym
 tqdm
 numpy
+scipy==1.4.1
+hyperopt==0.2.7
 -e ./gym-bellman

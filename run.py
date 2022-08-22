@@ -54,10 +54,10 @@ if __name__ == "__main__":
 
 
     agent = Agent(ENV_NAME)
-
+    # for _ in range(10):
     for i in tqdm(range(N_TRAIN_EPISODES[ENV_NAME])):
         train(agent, env)
-   
+
     rewards = []
     for i in tqdm(range(N_EVAL_EPISODES)):
         rewards.append(evaluate(agent, env))

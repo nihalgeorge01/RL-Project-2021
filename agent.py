@@ -2,6 +2,7 @@ from numpy.core.fromnumeric import argmax
 from config import *
 import time
 import numpy as np
+from scipy.optimize import least_squares
 """
 
 DO not modify the structure of "class Agent".
@@ -23,22 +24,33 @@ Use the state saved in train phase here.
 
 class Agent:
     def __init__(self, env):
+    #def __init__(self, env, alpha, beta):
         self.env_name = env
         self.config = config[self.env_name]
-
+        
         if self.env_name == 'taxi':
             self.q_table = np.zeros((self.config[0],self.config[1]))
+            self.eps = 0.1
         
         if self.env_name == 'acrobot':
             np.random.seed(10)
             self.weights = np.clip(np.random.normal(0,np.sqrt(2/self.config[0]),size=(self.config[0],self.config[1])), -1, 1) #He initialisation
+            self.weights_best = None
+            self.rew_max = -600
+            self.rew = 0
+            self.eps = 1
+            self.eps_decay = 0.99
+
+        
+        if self.env_name[:3] == 'kbc':
+            self.eps_lens_e = []
+            self.eps_lens_h = []
 
         self.beta = self.config[2]
         self.alpha = self.config[3]
-        self.beta_inv = int(1/self.beta)
-        self.eps = 1
-        self.eps_decay = 0.99
-
+        #self.alpha = alpha
+        #self.beta = beta
+        
         # KBC targets
         self.kbc_r0 = -1
         self.kbc_b = -1
@@ -49,11 +61,6 @@ class Agent:
         self.kbc_kc = 0
         self.kbc_step = 0
         self.kbc_n = self.config[0]
-        self.kbc_pe_ct = [0 for i in range(self.kbc_n)]
-        self.kbc_ph_ct = [0 for i in range(self.kbc_n)]
-        self.kbc_train_ep = 0
-        self.kbc_pe_ep = 0
-        self.kbc_ph_ep = 0
         self.kbc_test_ep = 0
         self.kbc_easy = True
 
@@ -66,13 +73,14 @@ class Agent:
         RETURNS     : 
             - action - discretized 'action' from raw 'observation'
         """
+
         if self.env_name == 'acrobot':
             obs = np.array(obs).reshape(1,-1)
             q_vals = np.matmul(obs, self.weights)
             self.action = np.argmax(q_vals)
+            self.rew = 0
         
         elif self.env_name[:3] == 'kbc':
-            self.kbc_train_ep += 1
             self.action = 1
             self.kbc_step = 0
             if self.env_name[3] == 'c' and not self.kbc_easy:
@@ -97,9 +105,9 @@ class Agent:
         pi = 3.14159265
 
         # Hyperparams: relative importance of each variable
-        pe_scale = 1
-        ke_scale = 1
-        ke1_scale = 1
+        
+        pe_scale = 5
+        ke1_scale = 2
         ke2_scale = 1
         te_scale = 5
 
@@ -130,7 +138,7 @@ class Agent:
         ke = ((ke1_scale*ke1 + ke2_scale*ke2) - ke_max)/ke_max
 
         te_max = pe0 + ke_max
-        te = te_scale *(ke_scale*ke + pe_scale*pe - te_max)/te_max
+        te = te_scale *(ke + pe_scale*pe - te_max)/te_max
 
         if done:
             return 1
@@ -149,26 +157,35 @@ class Agent:
         RETURNS     : 
             - action - discretized 'action' from raw 'observation'
         """
+        
         if self.env_name == 'acrobot':
+            self.rew+=reward
             obs = np.array(obs).reshape(1,-1)
             q_val_prev = np.matmul(self.obs_prev, self.weights[:,self.action].reshape(-1,1))[0]
             a_reward = self.acro_reward(obs, done)
             error = self.obs_prev*(a_reward + (1-done)*self.alpha*np.max(np.matmul(obs, self.weights)) - q_val_prev)
             self.weights[:, self.action] += self.beta*error[0]
-
+        
             q_vals = np.matmul(obs, self.weights)
-            #print(self.weights)
+           
             if np.random.uniform() > self.eps:
                 self.action = np.argmax(q_vals)
             else:
                 self.action = np.random.choice(self.config[1])
+            if done:
+                if self.rew>=self.rew_max:
+                    #print(f'saving weights for {self.rew}')
+                    self.weights_best = self.weights.copy()
+                    self.rew_max = self.rew
+            self.eps = max(0.1, self.eps*self.eps_decay)
         
         elif self.env_name[:3] == 'kbc':
             # hidden: reward - r0, b; probab - pe, ge
-            
             self.kbc_step += 1
+            
             # Finding r0 - Get 1 question correct, then leave to get r0
             if self.kbc_r0 == -1:  # Not yet found r0 
+                
                 if not done:        # Episode not ended => We got Q0 correct => We can pull out to get r0
                     self.action = 0
                 elif self.kbc_step == 1:    # Done and only 1 step => We got Q0 wrong, have to start again
@@ -179,6 +196,7 @@ class Agent:
             
             # Finding b - Get 2 questions correct, then leave to get r0*b, divide by r0 to get b
             elif self.kbc_b == -1:
+                
                 if not done:
                     if self.kbc_step == 1:  # Got Q0 correct, now have to attempt Q1
                         self.action = 1
@@ -189,43 +207,36 @@ class Agent:
                         self.action = 1
                     else:   # Done in 3 steps => Got Q0 and Q1 correct, then pulled out => got reward, now compute b and store it
                         self.kbc_b = float(reward)/self.kbc_r0
-
+            
             # Finding px, gx, kc - Simulate as many paths as possible, find empirical probabs
             else:       # Just store counts of how many times a state was reached
-                if self.env_name[3] == 'a': # KBC A - Finding pe, ge - Simulate as many paths as possible, find empirical probabs
-                    if not done:    # Keep attempting questions
-                        self.kbc_pe_ct[self.kbc_step-1] += 1 # Increment counter of correct attempts
-                        self.action = 1
-                    else:   # We lost at Q_step-1
-                        self.action = 1
-                        self.kbc_pe_ep += 1 # Increment episode count
-                
-                elif self.env_name[3] == 'b':   # KBC B - Finding pe, ge, kc - Simulate as many paths as possible, never pulling out, find empirical probabs.
-                    if not done:    # Keep attempting questions
-                        self.kbc_pe_ct[self.kbc_step-1] += 1 # Increment counter of correct attempts
-                        self.action = 1
-                    else:   # We lost at Q_step-1
-                        self.action = 1
-                        self.kbc_pe_ep += 1
+                if self.env_name[3] == 'a': 
+                    # KBC A - Finding pe, ge - Simulate as many paths as possible, never pulling out, keep count of episode lens
+                    self.action = 1
+                    if done:
+                        self.eps_lens_e.append(self.kbc_step-1)
+                    
+
+                elif self.env_name[3] == 'b':
+                    # KBC B - Finding pe, ge, kc - Simulate as many paths as possible, never pulling out, keep count of episode lens.
+                    self.action = 1
+                    if done:
+                        self.eps_lens_e.append(self.kbc_step-1)
                         if reward != 0:     # We crossed a checkpoint somewhere, note reward = r0*b^(kc-1), Use maths to get kc
                             self.kbc_kc = int(np.log(float(reward)/self.kbc_r0)/np.log(self.kbc_b)) + 1
-                
-                else:   # KBC C -Finding pe, ph, ge, gh - Simulate as many paths as possible, find empirical probabs. Alternate between episodes of all easy and all hard questions
-                    if not done:   # Don't change self.action, just do the same
+
+                else:   
+                    # KBC C -Finding pe, ph, ge, gh - Simulate as many paths as possible, Keep count of episode lens. Alternate between episodes of all easy and all hard questions
+                    if done:
                         if self.kbc_easy:
-                            self.kbc_pe_ct[self.kbc_step-1] += 1
-                        else:
-                            self.kbc_ph_ct[self.kbc_step-1] += 1
-                    else:   # We lost at Q_step-1, switch to other question mode
-                        if self.kbc_easy:
-                            self.kbc_pe_ep += 1
-                            self.kbc_easy = False
+                            self.eps_lens_e.append(self.kbc_step-1)
                             self.action = 2
+                            self.kbc_easy = False
                         else:
-                            self.kbc_ph_ep += 1
-                            self.kbc_easy = True
+                            self.eps_lens_h.append(self.kbc_step-1)
                             self.action = 1
-                    
+                            self.kbc_easy = True
+                            
         
         elif self.env_name == 'taxi':
             self.q_table[self.obs_prev][self.action] += self.beta*(reward + (1-done)*self.alpha*np.max(self.q_table[obs]) - \
@@ -237,14 +248,21 @@ class Agent:
             else:
                 self.action = np.random.choice(self.config[1])
 
-        self.eps = max(0.1, self.eps*self.eps_decay)
+        #self.eps = max(0.1, self.eps*self.eps_decay)
         self.obs_prev = obs
-        
-        # # beta decay
-        # self.beta_inv += 0.0001
-        # self.beta = max(0.0001, 1.0/self.beta_inv)
 
         return self.action
+    
+    def eqns(self, params):
+        P, gamma = params[0], params[1]
+        f1 = 0
+        f2 = 0
+        for i in self.eps_lens:
+            P_gamma_k = P*gamma**i
+            f1+=1/(1-P_gamma_k)
+            f2+=i/(1-P_gamma_k)
+        return [f1-self.sum_k-self.n, f2-self.sum_kk-self.sum_k]
+
 
     def register_reset_test(self, obs):
         """
@@ -257,68 +275,56 @@ class Agent:
         """
         if self.env_name == 'acrobot':
             obs = np.array(obs).reshape(1,-1)
-            q_vals = np.matmul(obs, self.weights)
+            q_vals = np.matmul(obs, self.weights_best)
             action = np.argmax(q_vals)
+            
         
         elif self.env_name[:3] == 'kbc':
             # If first test episode, set variables and DP tables
+            
             if self.kbc_test_ep == 0:
+                
                 # If any params are unset (at -1), put some default value
                 if self.kbc_r0 == -1:
                     self.kbc_r0 = 1000
                 if self.kbc_b == -1:
                     self.kbc_b = 2
                 # kbc_kc is already set correctly to 0 if not KBC B
-                
+
                 # Build rewards and probab arrays
                 self.kbc_rewards = [0] + [self.kbc_r0 * (self.kbc_b ** i) for i in range(self.kbc_n)]
                 self.kbc_rewards[-1] = self.kbc_r0 * (self.kbc_b ** (self.kbc_n-2)) # Env has a mistake, setter's side issue
                 
-                # TODO : Least squares based estimate of px, gx
-                self.kbc_pe_log_emp = []
-                lstsq_tol = 10
-                for i in range(lstsq_tol):
-                    val = self.kbc_pe_ct[i]
-                    if val>0:
-                        self.kbc_pe_log_emp.append(np.log(val/self.kbc_pe_ep))
-                    else:
-                        break
-                
-                el_ct = len(self.kbc_pe_log_emp)
-                # Least square fit of pe_log_emp = Ax, where x has ln(ge) and ln(pe) - 0.5ln(ge)
-                A = np.array([[val**2, val] for val in range(1,el_ct+1)])
-                coeffs = np.linalg.lstsq(A,np.array(self.kbc_pe_log_emp), rcond=None)[0]
-                self.kbc_ge = np.exp(2*coeffs[0])
-                self.kbc_pe = np.exp(coeffs[1] + coeffs[0])
+                #Computing constants for MLE eqns
+                self.eps_lens = self.eps_lens_e
+                self.n = len(self.eps_lens)
+                self.sum_k = sum(self.eps_lens)
+                self.sum_kk = 0
+                for i in self.eps_lens:
+                    self.sum_kk += i*(i-1)/2
+                 
+                #Solving the Eqns
+                soln = least_squares(self.eqns, [0.5,0.5], bounds = ((0,0),(1,1)))
+                self.kbc_pe, self.kbc_ge = soln['x'][0], soln['x'][1]
+                #print(f'printing easy {self.kbc_pe}, {self.kbc_ge}')
+
 
                 # Finding hard q params for KBC C
                 if self.env_name[3] == 'c':
-                    self.kbc_ph_log_emp = []
-                    for i in range(lstsq_tol):
-                        val = self.kbc_ph_ct[i]
-                        if val>0:
-                            self.kbc_ph_log_emp.append(np.log(val/self.kbc_ph_ep))
-                        else:
-                            break
+                    self.eps_lens = self.eps_lens_h
+                    self.n = len(self.eps_lens)
+                    self.sum_k = sum(self.eps_lens)
+                    self.sum_kk = 0
+                    for i in self.eps_lens:
+                        self.sum_kk += i*(i-1)/2
+                    
+                    soln = least_squares(self.eqns, [0.9,0.9], bounds = ((0,0),(1,1)))
+                    self.kbc_ph, self.kbc_gh = soln['x'][0], soln['x'][1]
+                    #print(f'printing hard {self.kbc_ph}, {self.kbc_gh}')
 
-                    el_ct = len(self.kbc_ph_log_emp)
-                    # Least square fit to get ln(gh) and ln(ph) + 0.5ln(gh)
-                    A = np.array([[val**2, val] for val in range(1,el_ct+1)])
-                    coeffs = np.linalg.lstsq(A,np.array(self.kbc_ph_log_emp), rcond=None)[0]
-                    self.kbc_gh = np.exp(2*coeffs[0])
-                    self.kbc_ph = np.exp(coeffs[1] + coeffs[0])
-
-                # OLD: Empirical probabs of 1st two qs to get pe and ge
-                # self.kbc_pe = self.kbc_pe_ct[0]/self.kbc_pe_ep
-                # self.kbc_ge = (self.kbc_pe_ct[1]/self.kbc_pe_ep)/(self.kbc_pe ** 2)
-                # self.kbc_pe = 0.99
-                # self.kbc_ge = 0.95
                 self.kbc_pe_ns_probs = [self.kbc_pe * (self.kbc_ge ** i) for i in range(self.kbc_n)]
 
                 if self.env_name[3] == 'c':
-                    # OLD: Empirical probabs of 1st two qs to get ph and gh
-                    # self.kbc_ph = self.kbc_ph_ct[0]/self.kbc_ph_ep
-                    # self.kbc_gh = (self.kbc_ph_ct[1]/self.kbc_ph_ep)/(self.kbc_ph ** 2)
                     self.kbc_ph_ns_probs = [self.kbc_ph * (self.kbc_gh ** i) for i in range(self.kbc_n)]
                 
                 # Build DP table, get optimal policy
@@ -339,12 +345,48 @@ class Agent:
                     self.kbc_dp[i] = max(choices)
                     self.kbc_pol[i] = argmax(choices)
 
-                # print("Optimal policy:", self.kbc_pol)
+                # prod = 1
+                # p_thresh = 0.033104
+                # i_thresh = self.kbc_n - 1
+                # for i in range(self.kbc_kc):
+                #     if self.kbc_pol[i] == 1:
+                #         if prod*self.kbc_pe_ns_probs[i] < p_thresh:
+                #             i_thresh = i
+                #             break
+                #         prod *= self.kbc_pe_ns_probs[i]
+                #     elif self.kbc_pol[i] == 2:
+                #         if prod*self.kbc_pe_ns_probs[i] < p_thresh:
+                #             i_thresh = i
+                #             break
+                #         prod *= self.kbc_ph_ns_probs[i]
+                #     else:
+                #         break
+                
+                # for i in range(i_thresh,self.kbc_n):
+                #     self.kbc_pol[i] = 0
+                
+                # prod = 1
+                # p_thresh = 0.033104
+                # i_thresh = self.kbc_n - 1
+                # for i in range(self.kbc_kc, self.kbc_n):
+                #     if self.kbc_pol[i] == 1:
+                #         if prod*self.kbc_pe_ns_probs[i] < p_thresh:
+                #             i_thresh = i
+                #             break
+                #         prod *= self.kbc_pe_ns_probs[i]
+                #     elif self.kbc_pol[i] == 2:
+                #         if prod*self.kbc_pe_ns_probs[i] < p_thresh:
+                #             i_thresh = i
+                #             break
+                #         prod *= self.kbc_ph_ns_probs[i]
+                #     else:
+                #         break
+                
+                # for i in range(i_thresh,self.kbc_n):
+                #     self.kbc_pol[i] = 0
+                
+                print("Optimal policy:", self.kbc_pol)
                 # print("Optimal value:", self.kbc_dp)
-                # print("Train eps used for pe:", self.kbc_pe_ep)
-                # print("Train eps used for ph:", self.kbc_ph_ep)
-                # print("pe counts:", self.kbc_pe_ct)
-                # print("ph counts:", self.kbc_ph_ct)
                 # self.kbc_pol = [1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0]
                 
             # Take optimal action given obs and DP table
@@ -371,7 +413,7 @@ class Agent:
         """
         if self.env_name == 'acrobot':
             obs = np.array(obs).reshape(1,-1)
-            q_vals = np.matmul(obs, self.weights)
+            q_vals = np.matmul(obs, self.weights_best)
             action = np.argmax(q_vals)
         
         elif self.env_name[:3] == 'kbc':
@@ -387,3 +429,4 @@ class Agent:
             action = np.argmax(self.q_table[obs])
         #raise NotImplementedError
         return action
+
