@@ -1,4 +1,6 @@
-<h1 align="center"><a href="https://www.aicrowd.com/challenges/rl-project-2021">IITM RL Final Project 2021</a> - Starter Kit</h1>
+<h1 align="center"><a href="https://www.aicrowd.com/challenges/rl-project-2021">IITM RL Final Project 2021</a></h1>
+
+By Aditya Das (ME19B194) and Nihal John George (EE19B131)  
 
 
 This is the starter kit for the [IITM RL Final Project](https://www.aicrowd.com/challenges/rl-project-2021) hosted on [AIcrowd](https://www.aicrowd.com). Clone the repository to compete now!
